@@ -1,0 +1,41 @@
+name: Sagano seat watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Send a test notification only"
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+
+concurrency:
+  group: sagano-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check seats
+        id: check
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          set +e
+          if [ "${{ inputs.test }}" = "true" ]; then python3 watch.py --test; exit $?; fi
+          python3 watch.py
+          code=$?
+          if [ $code -eq 10 ]; then echo "done=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          exit $code
+      - name: Stop watching after an alert
+        if: steps.check.outputs.done == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable watch.yml --repo "$GITHUB_REPOSITORY"
