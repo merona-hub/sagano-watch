@@ -33,3 +33,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow disable kusama.yml --repo "$GITHUB_REPOSITORY"
+      # GitHub's cron is unreliable, so each run starts the next one.
+      - name: Keep watching
+        if: ${{ !cancelled() && steps.check.outputs.done != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run kusama.yml --repo "$GITHUB_REPOSITORY"
