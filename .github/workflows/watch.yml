@@ -9,6 +9,10 @@ on:
         description: "Send a test notification only"
         type: boolean
         default: false
+      last:
+        description: "Trains already open in the previous run (set by the watcher)"
+        type: string
+        default: ""
 
 permissions:
   actions: write
@@ -27,6 +31,7 @@ jobs:
         id: check
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          LAST_OPEN: ${{ inputs.last }}
         run: |
           set +e
           if [ "${{ inputs.test }}" = "true" ]; then python3 watch.py --test; exit $?; fi
@@ -34,7 +39,7 @@ jobs:
           code=$?
           if [ $code -eq 10 ]; then echo "done=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           exit $code
-      - name: Stop watching after an alert
+      - name: Stop after the trip date
         if: steps.check.outputs.done == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,4 +49,5 @@ jobs:
         if: ${{ !cancelled() && steps.check.outputs.done != 'true' && inputs.test != true }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run watch.yml --repo "$GITHUB_REPOSITORY"
+          STATE: ${{ steps.check.outputs.state || inputs.last }}
+        run: gh workflow run watch.yml --repo "$GITHUB_REPOSITORY" -f last="$STATE"

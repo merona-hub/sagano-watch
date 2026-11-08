@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      last:
+        description: "Days already open in the previous run (set by the watcher)"
+        type: string
+        default: ""
 
 permissions:
   actions: write
@@ -22,13 +27,14 @@ jobs:
         id: check
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          LAST_OPEN: ${{ inputs.last }}
         run: |
           set +e
           python3 kusama.py
           code=$?
           if [ $code -eq 10 ]; then echo "done=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           exit $code
-      - name: Stop watching after an alert
+      - name: Stop after the last day
         if: steps.check.outputs.done == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,4 +44,5 @@ jobs:
         if: ${{ !cancelled() && steps.check.outputs.done != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run kusama.yml --repo "$GITHUB_REPOSITORY"
+          STATE: ${{ steps.check.outputs.state || inputs.last }}
+        run: gh workflow run kusama.yml --repo "$GITHUB_REPOSITORY" -f last="$STATE"

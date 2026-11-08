@@ -1,6 +1,8 @@
 """Check Sagano Torokko seats for 2026-12-02 (2 adults) every 15 s for ~4.5 min.
 
-Sends an ntfy push and exits with code 10 when a target train has seats.
+Alerts once each time a target train goes from full to having seats, and keeps
+watching. LAST_OPEN carries the trains already open from the previous run.
+Exits with code 10 once the trip date is reached.
 """
 import datetime, json, os, sys, time, urllib.request
 
@@ -33,6 +35,13 @@ def notify(message):
     urllib.request.urlopen(req, timeout=20)
 
 
+def save_state(open_now):
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as f:
+            f.write(f"state={','.join(sorted(open_now)) or 'none'}\n")
+
+
 if __name__ == "__main__":
     if "--test" in sys.argv:
         notify("Test: the Sagano watcher can reach your phone.")
@@ -40,19 +49,28 @@ if __name__ == "__main__":
     if datetime.date.today() >= datetime.date.fromisoformat(DATE):
         print("Trip date reached; nothing to watch.")
         sys.exit(10)
+    last = {s for s in os.environ.get("LAST_OPEN", "").split(",") if s and s != "none"}
     end = time.time() + RUN_SECONDS
     while time.time() < end:
-        found = []
+        open_now = set()
         for label, frm, to, product, targets in LEGS:
             try:
                 avail = check(frm, to, product)
-                found += [f"{label} {t}" for t in targets if avail.get(t)]
+                open_now |= {f"{label} {t}" for t in targets if avail.get(t)}
             except Exception as e:
                 print(f"error {label}: {e}", flush=True)
-        if found:
-            msg = f"2.12, 2 seats: {', '.join(found)}. Book now: {BOOK}"
+                # Keep a leg's last known state when its check fails.
+                open_now |= {s for s in last if s.startswith(label)}
+        new = open_now - last
+        if new:
+            msg = f"2.12, 2 seats: {', '.join(sorted(new))}. Book now: {BOOK}"
             print(msg, flush=True)
-            notify(msg)
-            sys.exit(10)
+            try:
+                notify(msg)
+            except Exception as e:
+                print(f"notify failed: {e}", flush=True)
+                open_now -= new  # retry the alert next check
+        last = open_now
         time.sleep(INTERVAL)
-    print("Still sold out.")
+    save_state(last)
+    print(f"Open at end of run: {sorted(last) or 'none'}")
